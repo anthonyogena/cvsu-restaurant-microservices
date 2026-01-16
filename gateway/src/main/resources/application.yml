@@ -1,0 +1,33 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: cvsu-gateway
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+      routes:
+        - id: menu-service
+          uri: http://localhost:8081
+          predicates:
+            - Path=/v1/menu/**
+        - id: order-service
+          uri: http://localhost:8082
+          predicates:
+            - Path=/v1/orders/**
+# DEBUGGING: This will verify if the routes are actually loading
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.web.reactive: DEBUG
