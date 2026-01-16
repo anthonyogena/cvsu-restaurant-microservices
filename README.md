@@ -9,7 +9,7 @@ This project consists of three microservices:
 3.  **Order Service (Port 8082):** Handles customer orders and calculates prices by communicating with the Menu Service.
 
 ## 🚀 Prerequisites
-*   Java 21 or 25
+*   Java 21 and 25
 *   Maven
 *   MySQL Server
 
