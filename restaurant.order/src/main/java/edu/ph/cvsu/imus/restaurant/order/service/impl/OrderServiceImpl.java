@@ -36,52 +36,36 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Order createOrder(Order order) {
-        // 1. Check for duplicates
         if(orderRepository.findOrderByCustomerNameAndTableNumber(order.getCustomerName(),
                 order.getTableNumber()).isPresent()){
             throw new OrderDuplicateEntryException("Order for Table "+order.getTableNumber()+
                     " and customer "+ order.getCustomerName()+" is already in the system");
         }
 
-        // 2. SAFETY CHECK: Prevent NullPointerException if orderItems is missing in JSON
         if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
             throw new RuntimeException("Error: You must provide at least one item in the order.");
         }
 
         BigDecimal totalOrderAmount = BigDecimal.ZERO;
 
-        // 3. Loop through items to fetch prices from Menu API
         for(OrderItem orderItem: order.getOrderItems()){
-
             String fullUrl = menuApiUrl + "/items/" + orderItem.getMenuId();
-
             try {
-                // Call Menu API (Port 8081)
                 MenuResponse menuData = restTemplate.getForObject(fullUrl, MenuResponse.class);
-
                 if (menuData != null) {
-                    // Set item price from Menu
                     orderItem.setPrice(menuData.getPrice());
-
-                    // Price * Quantity
                     BigDecimal itemTotal = menuData.getPrice().multiply(new BigDecimal(orderItem.getQuantity()));
-
-                    // Add to the Grand Total
                     totalOrderAmount = totalOrderAmount.add(itemTotal);
                 }
             } catch (Exception e) {
-                // Log the error if an item isn't found
                 System.out.println("CRITICAL: Failed to find menu item: " + orderItem.getMenuId());
             }
-
             orderItem.setOrder(order);
         }
 
-        // 4. Set final calculated data
         order.setTotalAmount(totalOrderAmount);
-        order.setOrderStatus(OrderStatus.PLACED); // Requirement: Start as PLACED
+        order.setOrderStatus(OrderStatus.PLACED);
 
-        // 5. Save everything
         itemRepository.saveAll(order.getOrderItems());
         return orderRepository.save(order);
     }
@@ -104,16 +88,29 @@ public class OrderServiceImpl implements OrderService {
         return orderRepository.findAll();
     }
 
+    /**
+     * FIXED PATCH LOGIC:
+     * This method now finds the record first and only updates fields that are provided.
+     * It avoids the NullPointerException by NOT looping through items unless necessary.
+     */
     @Override
-    public Order patchOrder(String id, Order order) {
-        if(orderRepository.findById(id).isEmpty()){
-            throw new OrderNotFoundException(id);
+    public Order patchOrder(String id, Order incomingUpdate) {
+        // 1. Fetch the existing order from Database
+        Order existingOrder = orderRepository.findById(id)
+                .orElseThrow(() -> new OrderNotFoundException(id));
+
+        // 2. Only update the status if provided in the request
+        if (incomingUpdate.getOrderStatus() != null) {
+            existingOrder.setOrderStatus(incomingUpdate.getOrderStatus());
         }
-        for(OrderItem orderItem: order.getOrderItems()){
-            orderItem.setOrder(order);
+
+        // 3. Only update the table number if provided
+        if (incomingUpdate.getTableNumber() != null) {
+            existingOrder.setTableNumber(incomingUpdate.getTableNumber());
         }
-        itemRepository.saveAll(order.getOrderItems());
-        return orderRepository.save(order);
+
+        // 4. Save the modified record
+        return orderRepository.save(existingOrder);
     }
 
     @Override
@@ -121,7 +118,6 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new OrderNotFoundException(id));
 
-        // Requirement: Delete sets status to CANCELLED
         order.setOrderStatus(OrderStatus.CANCELLED);
         return orderRepository.save(order);
     }
