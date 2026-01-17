@@ -2,7 +2,7 @@ package edu.ph.cvsu.imus.restaurant.order.service.impl;
 
 import edu.ph.cvsu.imus.restaurant.order.exceptions.OrderDuplicateEntryException;
 import edu.ph.cvsu.imus.restaurant.order.exceptions.OrderNotFoundException;
-import edu.ph.cvsu.imus.restaurant.order.model.MenuResponse; // <--- MAKE SURE YOU HAVE THIS CLASS
+import edu.ph.cvsu.imus.restaurant.order.model.MenuResponse;
 import edu.ph.cvsu.imus.restaurant.order.model.Order;
 import edu.ph.cvsu.imus.restaurant.order.model.OrderItem;
 import edu.ph.cvsu.imus.restaurant.order.model.enums.OrderStatus;
@@ -23,9 +23,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository itemRepository;
-    private final RestTemplate restTemplate; // <--- The phone to call Menu App
+    private final RestTemplate restTemplate;
 
-    // This reads the http://localhost:8081/v1/menu from your application.properties
     @Value("${menu.service.url}")
     private String menuApiUrl;
 
@@ -37,28 +36,31 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Order createOrder(Order order) {
-        // 1. Check for duplicates (existing logic)
+        // 1. Check for duplicates
         if(orderRepository.findOrderByCustomerNameAndTableNumber(order.getCustomerName(),
                 order.getTableNumber()).isPresent()){
             throw new OrderDuplicateEntryException("Order for Table "+order.getTableNumber()+
                     " and customer "+ order.getCustomerName()+" is already in the system");
         }
 
+        // 2. SAFETY CHECK: Prevent NullPointerException if orderItems is missing in JSON
+        if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
+            throw new RuntimeException("Error: You must provide at least one item in the order.");
+        }
+
         BigDecimal totalOrderAmount = BigDecimal.ZERO;
 
-        // 2. Loop through every item in the order
+        // 3. Loop through items to fetch prices from Menu API
         for(OrderItem orderItem: order.getOrderItems()){
 
-            // Construct the URL: http://localhost:8081/v1/menu/items/{id}
             String fullUrl = menuApiUrl + "/items/" + orderItem.getMenuId();
 
-            // CALL THE MENU API!
-            // We ask: "Hey, give me details for this ID"
             try {
+                // Call Menu API (Port 8081)
                 MenuResponse menuData = restTemplate.getForObject(fullUrl, MenuResponse.class);
 
                 if (menuData != null) {
-                    // We got the data! Set the price and calculate total.
+                    // Set item price from Menu
                     orderItem.setPrice(menuData.getPrice());
 
                     // Price * Quantity
@@ -68,22 +70,21 @@ public class OrderServiceImpl implements OrderService {
                     totalOrderAmount = totalOrderAmount.add(itemTotal);
                 }
             } catch (Exception e) {
-                // If Menu app is down or ID is wrong, this prevents a crash
-                System.out.println("Error fetching menu item: " + e.getMessage());
+                // Log the error if an item isn't found
+                System.out.println("CRITICAL: Failed to find menu item: " + orderItem.getMenuId());
             }
 
             orderItem.setOrder(order);
         }
 
-        // 3. Set the calculated total before saving
+        // 4. Set final calculated data
         order.setTotalAmount(totalOrderAmount);
+        order.setOrderStatus(OrderStatus.PLACED); // Requirement: Start as PLACED
 
-        // 4. Save to Database
+        // 5. Save everything
         itemRepository.saveAll(order.getOrderItems());
         return orderRepository.save(order);
     }
-
-    // --- The rest of the methods stay the same ---
 
     @Override
     public Order getOrderById(String id) {
@@ -119,6 +120,8 @@ public class OrderServiceImpl implements OrderService {
     public Order deleteOrder(String id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new OrderNotFoundException(id));
+
+        // Requirement: Delete sets status to CANCELLED
         order.setOrderStatus(OrderStatus.CANCELLED);
         return orderRepository.save(order);
     }

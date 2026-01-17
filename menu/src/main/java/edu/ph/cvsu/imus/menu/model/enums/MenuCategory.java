@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 public enum MenuCategory {
 
     APPETIZER("APPETIZER"),
-    MAIN_COURSE("MAIN_COURSE"),
+    MAIN("MAIN"),          // <--- CHANGED from MAIN_COURSE to match Doc
     DESSERT("DESSERT"),
     DRINK("DRINK");
 
